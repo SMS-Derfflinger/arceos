@@ -3,9 +3,12 @@
 use axhal::paging::{MappingFlags, PageTable};
 use memory_addr::VirtAddr;
 use memory_set::MappingBackend;
+use page_table_multiarch::PageSize;
 
 mod alloc;
 mod linear;
+
+pub const HUGE_PAGE_SIZE_2M: usize = 0x200000; // 2MB
 
 /// A unified enum type for different memory mapping backends.
 ///
@@ -45,14 +48,28 @@ impl MappingBackend for Backend {
     fn map(&self, start: VirtAddr, size: usize, flags: MappingFlags, pt: &mut PageTable) -> bool {
         match *self {
             Self::Linear { pa_va_offset } => Self::map_linear(start, size, flags, pt, pa_va_offset),
-            Self::Alloc { populate } => Self::map_alloc(start, size, flags, pt, populate),
+            Self::Alloc { populate } => {
+                let page_size = if populate == true && size % HUGE_PAGE_SIZE_2M == 0 && memory_addr::is_aligned(start.into(), HUGE_PAGE_SIZE_2M) {
+                    PageSize::Size2M
+                } else {
+                    PageSize::Size4K
+                };
+                Self::map_alloc(start, size, flags, pt, populate, page_size)
+            },
         }
     }
 
     fn unmap(&self, start: VirtAddr, size: usize, pt: &mut PageTable) -> bool {
         match *self {
             Self::Linear { pa_va_offset } => Self::unmap_linear(start, size, pt, pa_va_offset),
-            Self::Alloc { populate } => Self::unmap_alloc(start, size, pt, populate),
+            Self::Alloc { populate } => {
+                let page_size = if populate == true && size % HUGE_PAGE_SIZE_2M == 0 && memory_addr::is_aligned(start.into(), HUGE_PAGE_SIZE_2M) {
+                    PageSize::Size2M
+                } else {
+                    PageSize::Size4K
+                };
+                Self::unmap_alloc(start, size, pt, populate, page_size)
+            },
         }
     }
 
